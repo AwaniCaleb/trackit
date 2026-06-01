@@ -253,4 +253,4 @@ CMS 418 — Rivers State University
 
 ## License
 
-Please see the [LICENSE](LICENSE) file for more information.
+Please see the [LICENSE](LICENSE.md) file for more information.
