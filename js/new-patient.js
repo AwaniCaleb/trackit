@@ -244,6 +244,9 @@ document.addEventListener('DOMContentLoaded', function () {
 		photoFileName.textContent = 'No photo selected';
 		photoInput.value = '';
 
+		// Clear contacts
+		contacts.length = 0;
+		renderContacts();
 		refreshIdPreview();
 		window.scrollTo({ top: 0, behavior: 'smooth' });
 	}
@@ -316,6 +319,9 @@ document.addEventListener('DOMContentLoaded', function () {
 			city: getVal('city'),
 			street: getVal('street'),
 			zip: getVal('zip'),
+			telephone: getVal('telephone') || null,
+			doctor: getVal('doctor') || null,
+			contacts: contacts.slice(),
 			status: 'Active',
 			registeredDate: new Date().toISOString().split('T')[0],
 			photo: photoImg.src || null
@@ -329,6 +335,42 @@ document.addEventListener('DOMContentLoaded', function () {
 		localStorage.setItem('trackit_patients', JSON.stringify(list));
 	}
 
+
+	// ── Contacts management ──────────────────────────────────
+	const contacts = [];
+
+	document.getElementById('addContactBtn').addEventListener('click', function () {
+		const type = document.getElementById('contactType').value;
+		const detail = document.getElementById('contactDetail').value.trim();
+		if (!type || !detail) {
+			showToast('Please select a contact type and enter the detail.', 'danger');
+			return;
+		}
+		contacts.push({ type, detail });
+		renderContacts();
+		document.getElementById('contactType').value = '';
+		document.getElementById('contactDetail').value = '';
+	});
+
+	function renderContacts() {
+		const list = document.getElementById('contactsList');
+		const noMsg = document.getElementById('noContactsMsg');
+		noMsg.style.display = contacts.length ? 'none' : '';
+		list.innerHTML = contacts.map(function (c, i) {
+			return '<div class="d-flex align-items-center justify-content-between ' +
+				'py-2 border-bottom" style="font-size:.85rem;">' +
+				'<span><strong>' + c.type + ':</strong> ' + c.detail + '</span>' +
+				'<button type="button" class="btn btn-sm btn-outline-danger py-0 px-2" ' +
+				'style="font-size:.75rem;" onclick="removeContact(' + i + ')">Remove</button>' +
+				'</div>';
+		}).join('');
+	}
+
+	window.removeContact = function (index) {
+		contacts.splice(index, 1);
+		renderContacts();
+	};
+
 	// ── Validation helpers ───────────────────────────────────
 
 	/**
@@ -341,6 +383,9 @@ document.addEventListener('DOMContentLoaded', function () {
 		if (!el) return true;
 
 		const value = el.value.trim();
+
+		// Skip optional fields — they pass validation regardless
+		if (rule.optional) { markValid(el); return true; }
 
 		if (!value) {
 			markInvalid(el, rule.empty);
