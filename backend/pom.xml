@@ -18,7 +18,7 @@
     <description>Trackit Wireless Emergency Telemedicine System — Backend API</description>
 
     <properties>
-        <java.version>25</java.version>
+        <java.version>17</java.version>
         <jjwt.version>0.12.3</jjwt.version>
         <lombok.version>1.18.46</lombok.version>
     </properties>

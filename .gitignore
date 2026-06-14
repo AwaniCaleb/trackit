@@ -28,3 +28,7 @@ npm-debug.log*
 
 # Node (if anyone runs npx serve)
 node_modules/
+
+# Python
+__pycache__/
+*.pyc

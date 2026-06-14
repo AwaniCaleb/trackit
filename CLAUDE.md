@@ -17,28 +17,109 @@ a contract opportunity. Quality and correctness matter.
 
 ---
 
+## Current Status (this session)
+
+The backend and ML service are both built and running locally, verified
+independently. Frontend integration and end-to-end testing are next.
+
+### Backend (Spring Boot) — built, running on :8080
+- `java.version` in `backend/pom.xml` is **17** (changed from 25 — Java 25
+  bytecode broke `spring-boot-maven-plugin:3.3.0` with "Unsupported class
+  file major version 69". 17 matches the original target and builds fine
+  with the installed JDK 25 via `--release 17`)
+- **Maven Wrapper added** (`backend/mvnw`, `mvnw.cmd`, `.mvn/wrapper/`,
+  pinned to Maven 3.9.9) because `mvn` is not installed/on PATH on this
+  machine. Always use `./mvnw` (or `mvnw.cmd`), never a bare `mvn`.
+- Admin user auto-seeds on every startup (H2 is `create-drop`):
+  `admin@trackit.com` / `Admin1234`
+- `app.cors.allowed-origins` (application.properties) now includes
+  `http://localhost:5500` in addition to `http://127.0.0.1:5500`,
+  `http://localhost:3000`, and the Vercel domain
+
+### ML Service (FastAPI) — built, running on :8000
+- New directory: `ml-service/` (`main.py`, `ecg_processor.py`,
+  `requirements.txt`)
+- CORS open to all origins (internal service)
+- `GET /health` → `{"status": "ok"}`
+- `POST /predict` → accepts `{patientId, signal}` (signal = raw samples,
+  treated as 360Hz), returns `{patientId, classification, confidence, leads}`
+- Classification uses **neurokit2** R-peak detection → heart rate + R-R
+  interval CV → Normal / Tachycardia / Bradycardia / Atrial Fibrillation /
+  Chaotic / Unavailable (see `ecg_processor.py` for thresholds)
+- `leads` is an **object keyed by lead name** (`I, II, III, aVR, aVL, aVF,
+  V1-V6`), each an array of exactly 500 floats. Input signal is treated as
+  Lead II; the other 11 leads are derived via Einthoven's law + Goldberger's
+  augmented-lead formulas (limb leads) and stylised amplitude ratios
+  (precordial leads) — see "ML Model" section below for why this differs
+  from the originally-planned output shape
+- Verified end-to-end with a synthetic 1000-sample ECG: returned
+  `Normal` / `0.95` confidence, all 12 leads present at length 500,
+  `I + III == II` holds exactly
+
+### Restarting each service from scratch
+
+**Backend:**
+```bash
+cd backend
+./mvnw spring-boot:run        # Windows: mvnw.cmd spring-boot:run
+```
+Wait for `Started TrackitApplication` and the `Admin user seeded` banner
+in stdout.
+
+**ML service:**
+```bash
+cd ml-service
+pip install -r requirements.txt   # first time / after requirements.txt changes
+python main.py
+```
+Wait for `Uvicorn running on http://0.0.0.0:8000`.
+
+### What's next
+1. **End-to-end stack test** with both services running:
+   - `POST /api/auth/login` with `admin@trackit.com` / `Admin1234` → JWT
+   - `GET /api/patients` with `Authorization: Bearer <token>` → list
+   - `POST /api/ecg/analyse` → confirm it relays to `ml-service` `/predict`
+     and returns the classification + 12 leads
+2. **Wire frontend JS to real API endpoints** — replace the localStorage
+   placeholders in `js/login.js`, `js/new-patient.js`, `js/find-patient.js`,
+   `js/patient-connection.js` with `fetch()` calls per the documented
+   shapes
+3. **Deploy** — frontend to Vercel (confirm existing deployment), backend +
+   ML service to a host that can run both processes (switch backend to
+   `application-prod.properties` / Postgres via `DATABASE_URL`, etc.)
+
+---
+
 ## Repository Structure
 
 ```
 /
 ├── CLAUDE.md                  ← you are here
-├── frontend/                  ← COMPLETE. Do not modify without instruction.
-│   ├── index.html
-│   ├── login.html
-│   ├── new-patient.html
-│   ├── find-patient.html
-│   ├── patient-connection.html
-│   ├── css/styles.css
-│   └── js/
-│       ├── data.js            ← 15 dummy patients (DEFAULT_PATIENTS global)
-│       ├── index.js
-│       ├── login.js
-│       ├── new-patient.js
-│       ├── find-patient.js
-│       └── patient-connection.js
-├── backend/                   ← EXISTS but state unknown. Audit before touching.
+├── index.html, login.html, new-patient.html,
+│   find-patient.html, patient-connection.html  ← frontend pages, repo root
+│                                                  (NOT /frontend — see Frontend section)
+├── css/
+│   └── styles.css
+├── js/
+│   ├── data.js            ← 15 dummy patients (DEFAULT_PATIENTS global)
+│   ├── index.js
+│   ├── login.js
+│   ├── new-patient.js
+│   ├── find-patient.js
+│   └── patient-connection.js
+├── backend/                   ← Spring Boot 3.3 / Java 17. Built & running on
+│   │                             :8080 (see "Current Status")
+│   ├── mvnw, mvnw.cmd, .mvn/   ← Maven Wrapper — use this, not `mvn`
+│   ├── pom.xml
+│   └── src/main/java/...
+├── ml-service/                ← FastAPI ML service. Built & running on :8000
+│   ├── main.py                  (see "Current Status")
+│   ├── ecg_processor.py
+│   └── requirements.txt
 ├── model/
-│   └── theirs/                ← Model from another group. Audit before using.
+│   ├── ours/                  ← empty placeholder for a future custom 12-lead model
+│   └── theirs/                ← single-lead wearable notebook from another group,
+│                                  audited, NOT used (see "ML Model" section)
 └── PROJECT_DESCRIPTION.md     ← Full requirements document
 ```
 
@@ -138,28 +219,22 @@ const res = await fetch('/api/patients', {
 
 ---
 
-## Backend — State Unknown, Audit First
+## Backend — Built & Running (audited and completed this session)
 
-Located at `/backend`. Caleb attempted to build this but is unsure
-of what he actually produced.
+Located at `/backend`. Fully implemented: JWT auth, patient CRUD, ECG
+endpoints, validation, global exception handling, H2 (dev) / PostgreSQL
+(prod) profiles, admin auto-seed. Runs on **port 8080**. See "Current
+Status" near the top of this file for restart instructions and recent
+fixes (java.version, Maven Wrapper, CORS).
 
-**Before writing any new backend code:**
-1. Read all files in /backend to understand what framework is being used,
-   what's implemented, what's incomplete or broken
-2. Check for: pom.xml or build.gradle (Maven vs Gradle),
-   application.properties or application.yml (config),
-   any existing controllers, models, repositories, security config
-3. Report findings clearly — what exists, what works, what's missing,
-   what needs to be fixed or deleted
-
-**Target backend stack:**
-- Java 17+
-- Spring Boot 3.x
+**Backend stack (as built):**
+- Java 17
+- Spring Boot 3.3.0
 - Spring Web (REST controllers)
 - Spring Data JPA (database layer)
-- Spring Security + JJWT (JWT authentication)
-- PostgreSQL (database)
-- Maven (build tool)
+- Spring Security + JJWT 0.12.3 (JWT authentication)
+- H2 (dev, in-memory) / PostgreSQL (prod)
+- Maven, via Maven Wrapper (`./mvnw` — `mvn` is not installed on this machine)
 
 **Required API endpoints:**
 ```
@@ -173,29 +248,54 @@ POST   /api/ecg/analyse         → relay ECG data to Python ML service, return 
 GET    /api/ecg/leads/{id}      → get stored ECG lead data for a patient
 ```
 
-**CORS must allow:** the Vercel frontend domain (and localhost:5500 for development)
+**CORS must allow:** the Vercel frontend domain (and localhost:5500 for
+development) — ✅ done, see "Current Status"
 
 ---
 
-## ML Model — State Unknown, Audit First
+## ML Model (`/model/theirs`) — Audited, NOT Used
 
-Located at `/model/theirs`. This is a model obtained from another group.
+`/model/theirs` contains a single file: `ecg_wearable_triage.ipynb`. Audit
+findings:
+- Single-lead **wearable triage** notebook (smartwatch-style ECG + PPG,
+  256Hz/64Hz, 30s windows) — NOT a 12-lead clinical ECG model
+- Mostly unexecuted (only 2 of ~20 code cells have run; one of those two
+  errored with `NameError: name 'Tuple' is not defined`)
+- No saved model weights/checkpoint exist anywhere in the repo
+- Output schema (rhythm/stress/SpO2/severity tier) does not match the
+  required `{classification, confidence, leads}` shape
+- **Conclusion: not usable.** `/model/ours` is an empty placeholder for a
+  future custom 12-lead model.
 
-**Before integrating anything:**
-1. List all files in /model/theirs
-2. Identify the model format: .pkl (scikit-learn), .h5 (Keras),
-   .pt or .pth (PyTorch), .onnx, or other
-3. Look for any README, documentation, or sample code showing
-   how to load and run the model
-4. Identify what the model accepts as input and what it returns as output
-5. Report all findings before writing any integration code
+**What was built instead:** `ml-service/` (FastAPI), wrapping a
+**neurokit2-based classifier** built from scratch — see "Current Status"
+near the top of this file. It does not load or depend on `/model/theirs`
+or `/model/ours` in any way.
 
-**Target ML service:**
-- Python 3.10+
-- FastAPI (serves the model as an HTTP API)
-- Endpoint: POST /predict — accepts ECG signal data, returns classification
+**ML service stack (as built):**
+- Python 3.12, FastAPI + Uvicorn
+- `POST /predict` — accepts `{patientId, signal}`, returns classification
+  + 12-lead data
+- `GET /health` — returns `{"status": "ok"}`
 
-**Expected ML output shape (target):**
+**Actual ML output shape (verified):**
+```json
+{
+  "patientId": "TRK-001",
+  "classification": "Normal",
+  "confidence": 0.95,
+  "leads": {
+    "I":   [0.1, 0.3, 0.8, "... 500 floats total"],
+    "II":  [0.2, 0.4, 0.9, "..."],
+    "III": ["..."],
+    "aVR": ["..."], "aVL": ["..."], "aVF": ["..."],
+    "V1": ["..."], "V2": ["..."], "V3": ["..."],
+    "V4": ["..."], "V5": ["..."], "V6": ["..."]
+  }
+}
+```
+
+**Original target shape (superseded — kept for history):**
 ```json
 {
   "classification": "Normal",
@@ -207,6 +307,11 @@ Located at `/model/theirs`. This is a model obtained from another group.
   ]
 }
 ```
+The actual shape uses an **object keyed by lead name** (not an array of
+`{lead, signal}` objects) and includes `patientId`. The Spring Boot
+`EcgService` relays the `ml-service` response as-is (`Map<?,?>`), so
+`POST /api/ecg/analyse` returns the **actual** shape above — frontend
+wiring should target that.
 
 ---
 
@@ -308,14 +413,14 @@ PORT=8000
 
 ---
 
-## Current Session Priority
+## Session Priority — Progress
 
-1. Audit /backend — report what's there
-2. Audit /model/theirs — report what's there
-3. Based on findings, fix/complete the backend
-4. Wrap the ML model in a FastAPI service
-5. Connect frontend localStorage calls to real API calls
-6. End-to-end demo working
+1. ✅ Audit /backend — done (see "Backend" section)
+2. ✅ Audit /model/theirs — done (see "ML Model" section)
+3. ✅ Backend fixed/completed — running on :8080 (see "Current Status")
+4. ✅ ML service built (`ml-service/`, FastAPI + neurokit2) — running on :8000
+5. ⬜ Connect frontend localStorage calls to real API calls
+6. ⬜ End-to-end demo working
 
-**Start with the audit. Do not write any new code until you have
-read and reported on what already exists in /backend and /model/theirs.**
+**Remaining work is items 5-6 — see "What's next" under "Current Status"
+near the top of this file for the concrete next steps.**
