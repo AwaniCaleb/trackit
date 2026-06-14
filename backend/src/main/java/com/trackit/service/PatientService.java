@@ -61,6 +61,10 @@ public class PatientService {
                 .mapToInt(m -> Integer.parseInt(m.group(1)))
                 .max()
                 .orElse(0);
+        // TRK-001 to TRK-015 are reserved for frontend demo data (DEFAULT_PATIENTS)
+        if (maxNum < 15) {
+            maxNum = 15;
+        }
         return String.format("TRK-%03d", maxNum + 1);
     }
 }
