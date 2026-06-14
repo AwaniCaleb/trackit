@@ -75,11 +75,37 @@ document.addEventListener('DOMContentLoaded', function () {
 		// Loading state — prevent double submission
 		setLoading(true);
 
-		// Simulate authentication round-trip (replace with real API call)
-		setTimeout(function () {
-			localStorage.setItem('trackit_logged_in', 'true');
-			window.location.href = 'find-patient.html';
-		}, 1400);
+		fetch(API_BASE + '/api/auth/login', {
+			method: 'POST',
+			headers: { 'Content-Type': 'application/json' },
+			body: JSON.stringify({
+				email: emailInput.value.trim(),
+				password: passInput.value
+			})
+		})
+			.then(function (res) {
+				if (res.status === 401) {
+					markInvalid(emailInput, 'Invalid email or password');
+					markInvalid(passInput, 'Invalid email or password');
+					setLoading(false);
+					return null;
+				}
+				if (!res.ok) {
+					throw new Error('Login request failed: ' + res.status);
+				}
+				return res.json();
+			})
+			.then(function (data) {
+				if (!data) return; // 401 already handled above
+				setToken(data.token);
+				setUser(data.user);
+				window.location.href = 'find-patient.html';
+			})
+			.catch(function () {
+				markInvalid(emailInput, 'Could not connect to server');
+				markInvalid(passInput, 'Could not connect to server');
+				setLoading(false);
+			});
 	});
 
 	// ── Validation functions ─────────────────────────────

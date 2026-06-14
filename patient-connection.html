@@ -94,6 +94,17 @@
     }
     .ecg-controls .btn { font-size: .82rem; padding: 6px 16px; }
 
+    .ecg-result {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 10px 18px;
+      border-top: 1px solid var(--border);
+      font-size: .82rem;
+    }
+    .ecg-result-label { font-weight: 600; color: var(--text-mid); }
+    .ecg-result-confidence { color: var(--text-muted); font-size: .78rem; }
+
     /* ── Vitals ────────────────────────────── */
     .vitals-grid {
       display: grid;
@@ -275,12 +286,21 @@
             <button id="btnSave" class="btn btn-outline-secondary" disabled>
               <i class="bi bi-save me-1"></i>Save
             </button>
+            <button id="btnAnalyse" class="btn btn-outline-info" disabled>
+              <i class="bi bi-activity me-1"></i>Analyse ECG
+            </button>
             <button id="btnStop" class="btn btn-outline-danger" disabled>
               <i class="bi bi-stop-fill me-1"></i>Stop
             </button>
             <button id="btnUDP" class="btn btn-outline-secondary">
               <i class="bi bi-broadcast me-1"></i>UDP
             </button>
+          </div>
+
+          <div class="ecg-result" id="ecgResult">
+            <span class="ecg-result-label">ECG Analysis:</span>
+            <span class="badge bg-secondary" id="ecgResultBadge">Not yet analysed</span>
+            <span class="ecg-result-confidence" id="ecgResultConfidence"></span>
           </div>
         </div>
 
@@ -383,6 +403,7 @@
   <div id="toastContainer" aria-live="polite" aria-atomic="true"></div>
 
   <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
+  <script src="js/api.js"></script>
   <script src="js/data.js"></script>
   <script src="js/patient-connection.js"></script>
 </body>

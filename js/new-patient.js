@@ -14,6 +14,8 @@
 
 document.addEventListener('DOMContentLoaded', function () {
 
+	requireAuth();
+
 	// ── Nigerian states ──────────────────────────────────────
 	const NIGERIAN_STATES = [
 		'Abia', 'Adamawa', 'Akwa Ibom', 'Anambra', 'Bauchi', 'Bayelsa',
@@ -273,26 +275,48 @@ document.addEventListener('DOMContentLoaded', function () {
 		}
 
 		const patient = buildPatient();
-		persistPatient(patient);
+		setSaving(true);
 
-		// Update the badge in the ID preview to "Saved"
-		const badge = document.querySelector('#previewId + .badge');
-		if (badge) {
-			badge.className = 'badge bg-success small';
-			badge.textContent = 'Saved';
-		}
+		apiFetch('/api/patients', {
+			method: 'POST',
+			body: JSON.stringify(patient)
+		})
+			.then(function (saved) {
+				// Show the backend-assigned ID and mark the preview as saved
+				document.getElementById('previewId').textContent = saved.id;
+				const badge = document.querySelector('#previewId + .badge');
+				if (badge) {
+					badge.className = 'badge bg-success small';
+					badge.textContent = 'Saved';
+				}
 
-		showToast(
-			`<i class="bi bi-check-circle-fill me-2"></i>
+				showToast(
+					`<i class="bi bi-check-circle-fill me-2"></i>
        Patient <strong>${patient.firstName} ${patient.lastName}</strong>
-       registered as <strong>${patient.id}</strong>`,
-			'success'
-		);
+       registered as <strong>${saved.id}</strong>`,
+					'success'
+				);
 
-		// Brief delay then redirect so the user sees the toast
-		setTimeout(function () {
-			window.location.href = 'find-patient.html?new=1';
-		}, 2200);
+				// Brief delay then redirect so the user sees the toast
+				setTimeout(function () {
+					window.location.href = 'find-patient.html?new=1';
+				}, 2200);
+			})
+			.catch(function (err) {
+				showToast(
+					`<i class="bi bi-exclamation-triangle-fill me-2"></i>${err.message}`,
+					'danger'
+				);
+				setSaving(false);
+			});
+	}
+
+	/** Disables/enables the save buttons while a save request is in flight */
+	function setSaving(saving) {
+		[document.getElementById('saveBtn'), document.getElementById('saveBtnMobile')]
+			.forEach(function (btn) {
+				if (btn) btn.disabled = saving;
+			});
 	}
 
 	document.getElementById('saveBtn').addEventListener('click', handleSave);
@@ -301,7 +325,6 @@ document.addEventListener('DOMContentLoaded', function () {
 	// ── Build patient object ─────────────────────────────────
 	function buildPatient() {
 		return {
-			id: document.getElementById('previewId').textContent.trim(),
 			nationalId: getVal('nationalId'),
 			firstName: getVal('firstName'),
 			lastName: getVal('lastName'),
@@ -327,14 +350,6 @@ document.addEventListener('DOMContentLoaded', function () {
 			photo: photoImg.src || null
 		};
 	}
-
-	/** Append patient to the trackit_patients array in localStorage */
-	function persistPatient(patient) {
-		const list = JSON.parse(localStorage.getItem('trackit_patients') || '[]');
-		list.push(patient);
-		localStorage.setItem('trackit_patients', JSON.stringify(list));
-	}
-
 
 	// ── Contacts management ──────────────────────────────────
 	const contacts = [];

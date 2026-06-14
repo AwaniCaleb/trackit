@@ -2,7 +2,7 @@
  * find-patient.js — Trackit patient search and table logic
  *
  * Handles:
- *  - Merging DEFAULT_PATIENTS (from data.js) with localStorage patients
+ *  - Merging DEFAULT_PATIENTS (from data.js) with patients from the API
  *  - "New patient registered" toast when redirected from new-patient.html
  *  - Live search across name, ID, NIN, and department
  *  - Filter dropdowns: department, gender, status
@@ -16,11 +16,11 @@
 
 document.addEventListener('DOMContentLoaded', function () {
 
-    // ── Load all patients ────────────────────────────────────
-    // Merge the 15 default records with any saved via new-patient.html
-    const localPatients = JSON.parse(localStorage.getItem('trackit_patients') || '[]');
-    const allPatients = [...DEFAULT_PATIENTS, ...localPatients];
-    let filteredPatients = [...allPatients];
+    requireAuth();
+
+    // ── State ──────────────────────────────────────────────
+    let allPatients = [];
+    let filteredPatients = [];
 
     // ── Sort state ───────────────────────────────────────────
     // Default: most recently registered first
@@ -48,41 +48,65 @@ document.addEventListener('DOMContentLoaded', function () {
         );
     }
 
-    // ── Populate department filter ───────────────────────────
-    const departments = [...new Set(allPatients.map(p => p.department))].sort();
-    departments.forEach(function (dept) {
-        const opt = document.createElement('option');
-        opt.value = dept;
-        opt.textContent = dept;
-        deptFilter.appendChild(opt);
-    });
-
-    // ── Initial render ───────────────────────────────────────
-    applyFilters();
-
-    // ── Event listeners ──────────────────────────────────────
-    searchInput.addEventListener('input', applyFilters);
-    deptFilter.addEventListener('change', applyFilters);
-    genderFilter.addEventListener('change', applyFilters);
-    statusFilter.addEventListener('change', applyFilters);
-    clearFiltersBtn.addEventListener('click', clearAllFilters);
-    exportBtn.addEventListener('click', exportCSV);
-
-    // Sort on column header click
-    document.querySelectorAll('.sort-th[data-col]').forEach(function (th) {
-        th.addEventListener('click', function () {
-            const col = this.dataset.col;
-            if (sortCol === col) {
-                sortDir = sortDir === 'asc' ? 'desc' : 'asc';
-            } else {
-                sortCol = col;
-                sortDir = 'asc';
-            }
-            updateSortIcons();
-            sortData();
-            renderTable();
+    // ── Load patients from API, merged with DEFAULT_PATIENTS ─
+    apiFetch('/api/patients')
+        .then(function (apiPatients) {
+            allPatients = mergePatients(DEFAULT_PATIENTS, apiPatients || []);
+            init();
+        })
+        .catch(function (err) {
+            console.warn('Could not load patients from API, falling back to defaults only:', err);
+            allPatients = [...DEFAULT_PATIENTS];
+            init();
         });
-    });
+
+    /** Merges two patient lists, deduplicated by id (apiList entries win on conflict) */
+    function mergePatients(defaults, apiList) {
+        const map = new Map();
+        defaults.forEach(function (p) { map.set(p.id, p); });
+        apiList.forEach(function (p) { map.set(p.id, p); });
+        return Array.from(map.values());
+    }
+
+    function init() {
+        filteredPatients = [...allPatients];
+
+        // ── Populate department filter ───────────────────────
+        const departments = [...new Set(allPatients.map(p => p.department))].sort();
+        departments.forEach(function (dept) {
+            const opt = document.createElement('option');
+            opt.value = dept;
+            opt.textContent = dept;
+            deptFilter.appendChild(opt);
+        });
+
+        // ── Initial render ───────────────────────────────────
+        applyFilters();
+
+        // ── Event listeners ──────────────────────────────────
+        searchInput.addEventListener('input', applyFilters);
+        deptFilter.addEventListener('change', applyFilters);
+        genderFilter.addEventListener('change', applyFilters);
+        statusFilter.addEventListener('change', applyFilters);
+        clearFiltersBtn.addEventListener('click', clearAllFilters);
+        exportBtn.addEventListener('click', exportCSV);
+
+        // Sort on column header click
+        document.querySelectorAll('.sort-th[data-col]').forEach(function (th) {
+            th.addEventListener('click', function () {
+                const col = this.dataset.col;
+                if (sortCol === col) {
+                    sortDir = sortDir === 'asc' ? 'desc' : 'asc';
+                } else {
+                    sortCol = col;
+                    sortDir = 'asc';
+                }
+                updateSortIcons();
+                sortData();
+                renderTable();
+            });
+        });
+    }
 
     // ── Filter logic ─────────────────────────────────────────
     /**

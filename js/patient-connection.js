@@ -3,14 +3,17 @@
  *
  * Handles:
  *  - Animated ECG waveform (canvas — P wave, QRS complex, T wave)
- *  - Connect to patient by name or ID (searches DEFAULT_PATIENTS + localStorage)
+ *  - Connect to patient by ID (API lookup) or name (API search), falling
+ *    back to DEFAULT_PATIENTS if the API is unavailable
  *  - Live vital signs display with realistic fluctuation when connected
- *  - Pause / Resume / Stop / Save controls
+ *  - Pause / Resume / Stop / Save / Analyse ECG controls
  *  - UDP toggle (visual demo)
  *  - Patient info panel population on connect
  */
 
 document.addEventListener('DOMContentLoaded', function () {
+
+	requireAuth();
 
 	// ── Canvas setup ─────────────────────────────────────────
 	const canvas = document.getElementById('ecgCanvas');
@@ -66,6 +69,23 @@ document.addEventListener('DOMContentLoaded', function () {
 			}
 		}
 		return 0;
+	}
+
+	/**
+	 * Generates a synthetic ECG signal of `numSamples` points by repeating
+	 * the BEAT_POINTS waveform at the current heart rate, treated as 360Hz.
+	 */
+	function generateEcgSignal(numSamples) {
+		const sampleRate = 360; // Hz, matches ml-service assumption
+		const bpm = ecg.bpm || 72;
+		const samplesPerCycle = (sampleRate * 60) / bpm;
+
+		const signal = [];
+		for (let i = 0; i < numSamples; i++) {
+			const t = (i % samplesPerCycle) / samplesPerCycle;
+			signal.push(ecgAt(t));
+		}
+		return signal;
 	}
 
 	// ── ECG state ────────────────────────────────────────────
@@ -249,8 +269,6 @@ document.addEventListener('DOMContentLoaded', function () {
 	}
 
 	// ── Patient data ─────────────────────────────────────────
-	const localPats = JSON.parse(localStorage.getItem('trackit_patients') || '[]');
-	const allPatients = [...DEFAULT_PATIENTS, ...localPats];
 	let connectedPat = null;
 
 	// Populate datalist suggestions
@@ -261,7 +279,7 @@ document.addEventListener('DOMContentLoaded', function () {
 
 	function rebuildSuggestions() {
 		suggestions.innerHTML = '';
-		allPatients.forEach(function (p) {
+		DEFAULT_PATIENTS.forEach(function (p) {
 			const opt = document.createElement('option');
 			opt.value = connType.value === 'name'
 				? p.firstName + ' ' + p.lastName
@@ -275,23 +293,61 @@ document.addEventListener('DOMContentLoaded', function () {
 	rebuildSuggestions();
 
 	// ── Connect / disconnect ─────────────────────────────────
-	function findPatient(query) {
+
+	/** Local fallback lookup against DEFAULT_PATIENTS only */
+	function findPatientLocal(query) {
 		const q = query.trim().toLowerCase();
 		if (!q) return null;
 		if (connType.value === 'id') {
-			return allPatients.find(function (p) {
+			return DEFAULT_PATIENTS.find(function (p) {
 				return p.id.toLowerCase() === q;
 			}) || null;
 		}
-		return allPatients.find(function (p) {
+		return DEFAULT_PATIENTS.find(function (p) {
 			return (p.firstName + ' ' + p.lastName).toLowerCase() === q ||
 				p.lastName.toLowerCase() === q ||
 				p.firstName.toLowerCase() === q;
 		}) || null;
 	}
 
-	function connect() {
-		const patient = findPatient(connValue.value);
+	/**
+	 * Looks up a patient via the API: by ID first (unless the search type is
+	 * "name"), then by search query, then falls back to DEFAULT_PATIENTS.
+	 */
+	async function findPatient(query) {
+		const q = query.trim();
+		if (!q) return null;
+
+		if (connType.value !== 'name') {
+			try {
+				const patient = await apiFetch('/api/patients/' + encodeURIComponent(q));
+				if (patient) return patient;
+			} catch (err) {
+				if (err.status !== 404) console.warn('Patient lookup by ID failed:', err);
+			}
+		}
+
+		try {
+			const results = await apiFetch('/api/patients?search=' + encodeURIComponent(q));
+			if (results && results.length > 0) return results[0];
+		} catch (err) {
+			console.warn('Patient search failed:', err);
+		}
+
+		return findPatientLocal(q);
+	}
+
+	async function connect() {
+		const connectBtn = document.getElementById('connectBtn');
+		const originalHtml = connectBtn.innerHTML;
+		connectBtn.disabled = true;
+		connectBtn.innerHTML = '<span class="spinner-border spinner-border-sm me-2"></span>Connecting…';
+
+		const patient = await findPatient(connValue.value);
+
+		connectBtn.disabled = false;
+		connectBtn.innerHTML = originalHtml;
+
 		if (!patient) {
 			connValue.classList.add('is-invalid');
 			const errEl = document.getElementById('connError');
@@ -305,6 +361,7 @@ document.addEventListener('DOMContentLoaded', function () {
 		connectedPat = patient;
 		setConnectedState(true);
 		showPatientInfo(patient);
+		resetEcgResult();
 
 		// Start ECG and vitals
 		vitalsState = { ...VITALS_BASE };
@@ -323,6 +380,7 @@ document.addEventListener('DOMContentLoaded', function () {
 		stopECG();
 		stopVitals();
 		clearPatientInfo();
+		resetEcgResult();
 		showToast('Disconnected from patient.', 'secondary');
 	}
 
@@ -331,6 +389,7 @@ document.addEventListener('DOMContentLoaded', function () {
 		const liveText = document.getElementById('liveText');
 		const btnPause = document.getElementById('btnPause');
 		const btnSave = document.getElementById('btnSave');
+		const btnAnalyse = document.getElementById('btnAnalyse');
 		const btnStop = document.getElementById('btnStop');
 		const connectBtn = document.getElementById('connectBtn');
 		const disconnBtn = document.getElementById('disconnectBtn');
@@ -340,6 +399,7 @@ document.addEventListener('DOMContentLoaded', function () {
 
 		btnPause.disabled = !connected;
 		btnSave.disabled = !connected;
+		btnAnalyse.disabled = !connected;
 		btnStop.disabled = !connected;
 
 		connectBtn.classList.toggle('d-none', connected);
@@ -386,9 +446,33 @@ document.addEventListener('DOMContentLoaded', function () {
       </div>`;
 	}
 
+	// ── ECG analysis result ───────────────────────────────────
+	const CLASSIFICATION_BADGE = {
+		Normal: 'bg-success',
+		Tachycardia: 'bg-warning text-dark',
+		Bradycardia: 'bg-warning text-dark',
+		'Atrial Fibrillation': 'bg-danger',
+		Chaotic: 'bg-danger',
+		Unavailable: 'bg-secondary'
+	};
+
+	function showEcgResult(classification, confidence) {
+		const badge = document.getElementById('ecgResultBadge');
+		badge.className = 'badge ' + (CLASSIFICATION_BADGE[classification] || 'bg-secondary');
+		badge.textContent = classification;
+		document.getElementById('ecgResultConfidence').textContent =
+			typeof confidence === 'number' ? `${Math.round(confidence * 100)}% confidence` : '';
+	}
+
+	function resetEcgResult() {
+		const badge = document.getElementById('ecgResultBadge');
+		badge.className = 'badge bg-secondary';
+		badge.textContent = 'Not yet analysed';
+		document.getElementById('ecgResultConfidence').textContent = '';
+	}
+
 	// ── Control buttons ──────────────────────────────────────
 	document.getElementById('connectBtn').addEventListener('click', connect);
-	document.getElementById('connectBtn') // also the top ECG panel button
 	document.getElementById('btnConnect').addEventListener('click', function () {
 		connValue.focus();
 		window.scrollTo({ top: 0, behavior: 'smooth' });
@@ -416,6 +500,37 @@ document.addEventListener('DOMContentLoaded', function () {
        Session saved for <strong>${connectedPat.firstName} ${connectedPat.lastName}</strong>`,
 			'success'
 		);
+	});
+
+	document.getElementById('btnAnalyse').addEventListener('click', async function () {
+		if (!connectedPat) return;
+
+		const btn = this;
+		const originalHtml = btn.innerHTML;
+		btn.disabled = true;
+		btn.innerHTML = '<span class="spinner-border spinner-border-sm me-2"></span>Analysing…';
+
+		const signal = generateEcgSignal(720);
+
+		try {
+			const result = await apiFetch('/api/ecg/analyse', {
+				method: 'POST',
+				body: JSON.stringify({ patientId: connectedPat.id, signal })
+			});
+			showEcgResult(result.classification, result.confidence);
+			showToast(
+				`<i class="bi bi-activity me-2"></i>ECG analysis: <strong>${esc(result.classification)}</strong>`,
+				'success'
+			);
+		} catch (err) {
+			showToast(
+				`<i class="bi bi-exclamation-triangle-fill me-2"></i>ECG analysis failed: ${esc(err.message)}`,
+				'danger'
+			);
+		} finally {
+			btn.disabled = !connectedPat;
+			btn.innerHTML = originalHtml;
+		}
 	});
 
 	document.getElementById('btnStop').addEventListener('click', function () {
