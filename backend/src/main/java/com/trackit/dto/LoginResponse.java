@@ -7,7 +7,13 @@ import lombok.Data;
 @AllArgsConstructor
 public class LoginResponse {
     private String token;
-    private long expiresIn;
-    private String email;
-    private String role;
+    private UserInfo user;
+
+    @Data
+    @AllArgsConstructor
+    public static class UserInfo {
+        private Long id;
+        private String email;
+        private String name;
+    }
 }

@@ -26,4 +26,7 @@ public interface PatientRepository extends JpaRepository<Patient, String> {
     );
 
     boolean existsByNationalId(String nationalId);
+
+    @Query("SELECT p.id FROM Patient p")
+    List<String> findAllIds();
 }

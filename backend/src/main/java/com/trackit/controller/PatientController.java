@@ -2,6 +2,7 @@ package com.trackit.controller;
 
 import com.trackit.entity.Patient;
 import com.trackit.service.PatientService;
+import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
@@ -35,12 +36,12 @@ public class PatientController {
     }
 
     @PostMapping
-    public ResponseEntity<Patient> create(@RequestBody Patient patient) {
+    public ResponseEntity<Patient> create(@Valid @RequestBody Patient patient) {
         return ResponseEntity.status(201).body(patientService.save(patient));
     }
 
     @PutMapping("/{id}")
-    public ResponseEntity<Patient> update(@PathVariable String id, @RequestBody Patient patient) {
+    public ResponseEntity<Patient> update(@PathVariable String id, @Valid @RequestBody Patient patient) {
         try {
             return ResponseEntity.ok(patientService.update(id, patient));
         } catch (RuntimeException e) {

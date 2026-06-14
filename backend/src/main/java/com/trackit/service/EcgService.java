@@ -1,11 +1,14 @@
 package com.trackit.service;
 
 import com.trackit.dto.EcgRequest;
+import com.trackit.entity.EcgSession;
+import com.trackit.repository.EcgSessionRepository;
 import lombok.RequiredArgsConstructor;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.web.client.RestTemplate;
 
+import java.util.List;
 import java.util.Map;
 
 @Service
@@ -16,10 +19,11 @@ public class EcgService {
     private String mlUrl;
 
     private final RestTemplate restTemplate;
+    private final EcgSessionRepository ecgSessionRepository;
 
     public Map<?, ?> analyse(EcgRequest req) {
         try {
-            return restTemplate.postForObject(mlUrl + "/analyse", req, Map.class);
+            return restTemplate.postForObject(mlUrl + "/predict", req, Map.class);
         } catch (Exception e) {
             // ML service unavailable — return graceful degraded response
             return Map.of(
@@ -28,5 +32,9 @@ public class EcgService {
                 "error", "ML service offline"
             );
         }
+    }
+
+    public List<EcgSession> getLeads(String patientId) {
+        return ecgSessionRepository.findByPatientIdOrderByRecordedAtDesc(patientId);
     }
 }

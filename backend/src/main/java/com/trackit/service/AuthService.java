@@ -6,7 +6,6 @@ import com.trackit.entity.AppUser;
 import com.trackit.repository.UserRepository;
 import com.trackit.security.JwtUtil;
 import lombok.RequiredArgsConstructor;
-import org.springframework.beans.factory.annotation.Value;
 import org.springframework.security.authentication.BadCredentialsException;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
@@ -19,9 +18,6 @@ public class AuthService {
     private final PasswordEncoder passwordEncoder;
     private final JwtUtil jwtUtil;
 
-    @Value("${app.jwt.expiration}")
-    private long expiration;
-
     public LoginResponse login(LoginRequest req) {
         AppUser user = userRepository.findByEmail(req.getEmail())
                 .orElseThrow(() -> new BadCredentialsException("Invalid email or password"));
@@ -31,6 +27,7 @@ public class AuthService {
         }
 
         String token = jwtUtil.generate(user.getEmail());
-        return new LoginResponse(token, expiration, user.getEmail(), user.getRole());
+        LoginResponse.UserInfo userInfo = new LoginResponse.UserInfo(user.getId(), user.getEmail(), user.getFullName());
+        return new LoginResponse(token, userInfo);
     }
 }

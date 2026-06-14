@@ -28,6 +28,9 @@ public class PatientService {
     }
 
     public Patient save(Patient patient) {
+        if (patient.getNationalId() != null && patientRepository.existsByNationalId(patient.getNationalId())) {
+            throw new IllegalArgumentException("A patient with national ID " + patient.getNationalId() + " already exists");
+        }
         if (patient.getId() == null || patient.getId().isBlank()) {
             patient.setId(generateId());
         }
@@ -48,8 +51,16 @@ public class PatientService {
         patientRepository.deleteById(id);
     }
 
+    private static final java.util.regex.Pattern TRK_ID_PATTERN = java.util.regex.Pattern.compile("TRK-(\\d+)");
+
     private String generateId() {
-        long count = patientRepository.count() + 1;
-        return String.format("TRK-%03d", count);
+        int maxNum = patientRepository.findAllIds().stream()
+                .filter(id -> id != null)
+                .map(TRK_ID_PATTERN::matcher)
+                .filter(java.util.regex.Matcher::matches)
+                .mapToInt(m -> Integer.parseInt(m.group(1)))
+                .max()
+                .orElse(0);
+        return String.format("TRK-%03d", maxNum + 1);
     }
 }
